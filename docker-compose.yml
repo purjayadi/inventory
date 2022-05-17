@@ -1,0 +1,94 @@
+version: "3.8"
+networks:
+  msnetwork:
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.30.0.0/24
+services:
+  cache:
+    image: redis:alpine
+    container_name: cache-accounting
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    command: redis-server --save 20 1 --loglevel warning --requirepass password
+    volumes: 
+      - cache:/data
+    networks:
+      msnetwork:
+        ipv4_address: 172.30.0.6
+  db:
+    container_name: db-accounting
+    restart: unless-stopped
+    image: 'postgres:alpine'
+    ports:
+      - '5432:5432'
+    environment:
+      - POSTGRES_USER=root
+      - POSTGRES_PASSWORD=12345
+      - POSTGRES_DB=defaultdb
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      msnetwork:
+        ipv4_address: 172.30.0.2
+  app:
+    container_name: app-accounting
+    build: 
+      context: ./
+      dockerfile: ./Dockerfile
+    restart: unless-stopped
+    tty: true
+    ports:
+      - 3000:3000
+    volumes:
+      - ./:/home/app
+      - ./proxy/ssl:/etc/nginx/certs
+    environment:
+      - PGUSER=root
+      - PGPASSWORD=12345
+      - PGDATABASE=defaultdb
+      - PGHOST=db
+      - REDIS_HOST=cache
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=password
+    depends_on: 
+      - db
+      - cache
+    networks:
+      msnetwork:
+        ipv4_address: 172.30.0.3
+  nginx-proxy:
+    container_name: accounting-proxy
+    restart: unless-stopped
+    build:
+      dockerfile: Dockerfile
+      context: ./proxy
+    depends_on:
+      - app
+      - db
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      msnetwork:
+        ipv4_address: 172.30.0.4
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin
+    restart: unless-stopped
+    ports:
+      - "5050:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: password
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin,
+    networks:
+      msnetwork:
+        ipv4_address: 172.30.0.5
+volumes:
+  pgdata: {}
+  pgadmin-data: {}
+  cache: {}
